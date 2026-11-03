@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WonderSnap — Gesture Visualizer</title>
+<style>
+:root{color-scheme:dark;--bg:#050817;--panel:#0b1124;--line:#202c4c;--cyan:#48d8ff;--pink:#d34cff;--muted:#a7b2d0}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 50% 45%,#11153b 0%,#050817 62%);color:#f4f7ff;font:15px/1.45 system-ui,sans-serif;min-height:100vh}
+header{height:76px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 24px;gap:16px}
+.brand{font-weight:800;font-size:22px;letter-spacing:-.5px}.brand span{color:var(--cyan)}
+header small{color:var(--muted)}main{display:grid;grid-template-columns:minmax(0,1fr) 310px;gap:16px;padding:16px;max-width:1500px;margin:auto}
+.stage{position:relative;min-height:600px;border:1px solid var(--line);border-radius:18px;overflow:hidden;background:#030611}
+#scene{position:absolute;inset:0;width:100%;height:100%;display:block}
+.camera{position:absolute;left:16px;top:16px;width:min(250px,42%);border:1px solid #35456b;border-radius:12px;background:#080d1b;overflow:hidden}
+.camera label{display:block;padding:8px 10px;font-size:12px;color:#cbd7f4;border-bottom:1px solid #263252}
+#video{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;transform:scaleX(-1);background:#10182c}
+.controls{position:absolute;bottom:18px;left:50%;transform:translateX(-50%);display:flex;gap:9px;flex-wrap:wrap;justify-content:center;width:95%}
+button{cursor:pointer;border:1px solid #34436c;background:#101a34;color:#f4f7ff;border-radius:11px;padding:11px 15px;font:inherit;transition:.15s}
+button:hover{border-color:var(--cyan);box-shadow:0 0 16px #38cfff30}button.primary{background:linear-gradient(110deg,#5924a6,#135e9c);border-color:#8a67ff}
+aside{border:1px solid var(--line);border-radius:18px;background:linear-gradient(160deg,#0b1227,#070b18);padding:18px}
+h2{font-size:17px;margin:0 0 12px}h3{font-size:14px;margin:20px 0 10px;color:#d8e1ff}
+.gesture{padding:12px;border:1px solid #1c2949;border-radius:10px;margin:8px 0;background:#0d1630;color:#dbe5ff;font-size:13px}
+.gesture b{display:block;font-size:14px;margin-bottom:3px}.effects{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.effects button{padding:12px 8px}.effects button.active{border-color:var(--pink);box-shadow:0 0 15px #d34cff35;color:#fff}
+.status{font-size:12px;color:var(--muted);margin-top:14px;min-height:36px}
+footer{max-width:1500px;margin:0 auto;padding:0 20px 20px;color:#8996b8;font-size:12px;display:flex;justify-content:space-between;gap:12px}
+@media(max-width:850px){main{grid-template-columns:1fr}.stage{min-height:65vh}aside{order:2}header{height:64px;padding:0 16px}footer{flex-direction:column}}
+</style>
+</head>
+<body>
+<header><div class="brand">✋ Wonder<span>Snap</span></div><small>Gesture-controlled visual playground</small></header>
+<main>
+<section class="stage">
+<canvas id="scene"></canvas>
+<div class="camera"><label>● Camera / hand tracking</label><video id="video" autoplay playsinline muted></video></div>
+<div class="controls">
+<button class="primary" id="start">▶ Start camera</button>
+<button id="stop">■ Stop</button>
+<button id="reset">↻ Reset</button>
+</div>
+</section>
+<aside>
+<h2>Gesture controls</h2>
+<div class="gesture"><b>Open hand</b>Spread particles</div>
+<div class="gesture"><b>Pinch (thumb + index)</b>Pull particles inward</div>
+<div class="gesture"><b>Move hand</b>Steer the visual field</div>
+<div class="gesture"><b>No camera</b>Move your mouse over the scene</div>
+<h3>Effects</h3>
+<div class="effects">
+<button class="active" data-effect="sphere">✦ Sphere</button>
+<button data-effect="wave">≋ Wave</button>
+<button data-effect="galaxy">🌀 Galaxy</button>
+<button data-effect="ring">◉ Ring</button>
+</div>
+<div class="status" id="status">Ready. Start the camera or move your mouse to interact.</div>
+</aside>
+</main>
+<footer><span>Prototype · Three.js + MediaPipe Hands</span><span>Camera processing runs in your browser.</span></footer>
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
+import {Hands} from 'https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js';
+import {Camera} from 'https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466862/camera_utils.js';
+
+const canvas=document.querySelector('#scene'), video=document.querySelector('#video'), status=document.querySelector('#status');
+const scene=new THREE.Scene(); scene.fog=new THREE.FogExp2(0x050817,.035);
+const camera=new THREE.PerspectiveCamera(55,1,.1,100);camera.position.z=13;
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+const count=5200, positions=new Float32Array(count*3), targets=new Float32Array(count*3), colors=new Float32Array(count*3);
+const geometry=new THREE.BufferGeometry();
+for(let i=0;i<count;i++){const k=i*3;positions[k]=(Math.random()-.5)*15;positions[k+1]=(Math.random()-.5)*10;positions[k+2]=(Math.random()-.5)*7;colors[k]=.25+Math.random()*.5;colors[k+1]=.45+Math.random()*.4;colors[k+2]=1;}
+geometry.setAttribute('position',new THREE.BufferAttribute(positions,3));geometry.setAttribute('color',new THREE.BufferAttribute(colors,3));
+const material=new THREE.PointsMaterial({size:.035,vertexColors:true,transparent:true,opacity:.95,blending:THREE.AdditiveBlending,depthWrite:false});
+const points=new THREE.Points(geometry,material);scene.add(points);
+let effect='sphere',handX=0,handY=0,spread=.35,pinch=false,stream=null,mpCamera=null,mouseActive=false;
+function makeTargets(){
+ for(let i=0;i<count;i++){let x,y,z;const a=Math.random()*Math.PI*2,b=Math.acos(2*Math.random()-1),r=2.5+Math.random()*.7;
+ if(effect==='sphere'){x=r*Math.sin(b)*Math.cos(a);y=r*Math.cos(b);z=r*Math.sin(b)*Math.sin(a)}
+ else if(effect==='wave'){x=(Math.random()-.5)*10;z=(Math.random()-.5)*4;y=Math.sin(x*1.4+z)*1.5}
+ else if(effect==='galaxy'){const arm=Math.floor(Math.random()*4)*Math.PI/2;x=Math.cos(a+arm)*r*1.3;y=(Math.random()-.5)*.7;z=Math.sin(a+arm)*r*1.3}
+ else {const t=Math.random()*Math.PI*2;x=Math.cos(t)*3;y=(Math.random()-.5)*1.2;z=Math.sin(t)*3}
+ const k=i*3;targets[k]=x;targets[k+1]=y;targets[k+2]=z;
+ }
+}
+makeTargets();
+function resize(){const r=canvas.getBoundingClientRect();renderer.setSize(r.width,r.height,false);camera.aspect=r.width/r.height;camera.updateProjectionMatrix()}
+new ResizeObserver(resize).observe(canvas);resize();
+function animate(){requestAnimationFrame(animate);const p=geometry.attributes.position;
+ for(let i=0;i<count;i++){const k=i*3;const pull=pinch?.25:spread; p.array[k]+=(targets[k]*(.35+pull)+handX*2-p.array[k])*.018;p.array[k+1]+=(targets[k+1]*(.35+pull)+handY*2-p.array[k+1])*.018;p.array[k+2]+=(targets[k+2]-p.array[k+2])*.018;}
+ p.needsUpdate=true;points.rotation.y+=.0015+handX*.001;points.rotation.x+=.0005-handY*.001;renderer.render(scene,camera)}
+animate();
+document.querySelectorAll('[data-effect]').forEach(btn=>btn.onclick=()=>{effect=btn.dataset.effect;document.querySelectorAll('[data-effect]').forEach(b=>b.classList.toggle('active',b===btn));makeTargets();status.textContent='Effect changed to '+effect+'.'});
+canvas.addEventListener('pointermove',e=>{if(!stream){const r=canvas.getBoundingClientRect();handX=(e.clientX-r.left)/r.width-.5;handY=.5-(e.clientY-r.top)/r.height;mouseActive=true;spread=.8;}});
+document.querySelector('#reset').onclick=()=>{handX=handY=0;spread=.35;pinch=false;makeTargets();status.textContent='Scene reset.'};
+document.querySelector('#stop').onclick=async()=>{if(mpCamera){mpCamera.stop();mpCamera=null}if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}video.srcObject=null;status.textContent='Camera stopped. Mouse interaction is still available.'};
+document.querySelector('#start').onclick=async()=>{
+ try{
+ stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:640,height:480},audio:false});video.srcObject=stream;await video.play();
+ const hands=new Hands({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/${f}`});
+ hands.setOptions({maxNumHands:1,modelComplexity:1,minDetectionConfidence:.65,minTrackingConfidence:.55});
+ hands.onResults(res=>{if(!res.multiHandLandmarks?.length){status.textContent='Show one hand to the camera.';return}
+ const l=res.multiHandLandmarks[0],w=l[0],tip=l[8],thumb=l[4];handX=(.5-tip.x)*2;handY=(.5-tip.y)*2;const d=Math.hypot(tip.x-thumb.x,tip.y-thumb.y);pinch=d<.055;spread=pinch?.05:.9;status.textContent=pinch?'Pinch detected — particles pulled inward.':'Hand detected — move to steer particles.';});
+ mpCamera=new Camera(video,{onFrame:async()=>{await hands.send({image:video})},width:640,height:480});mpCamera.start();status.textContent='Camera active. Allow camera access and show your hand.';
+ }catch(e){status.textContent='Camera unavailable: '+e.message+' — try mouse interaction.'}
+};
+</script>
+</body></html>
